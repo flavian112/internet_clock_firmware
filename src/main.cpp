@@ -16,7 +16,6 @@ int bufLen = 0;
 
 bool displayDots = false;
 
-
 uint8_t seg[] = { 
   0b01111110, // 0
   0b01001000, // 1
@@ -232,8 +231,6 @@ void loadData(uint8_t *data) {
     
     if (high) digitalWrite(DAT, HIGH);
     else digitalWrite(DAT, LOW);
-    if (high) Serial.print(1);
-    else Serial.print(0);
 
     delayMicroseconds(CLOCK_DELAY / 2);
 
@@ -242,7 +239,6 @@ void loadData(uint8_t *data) {
     digitalWrite(CLK, LOW);
     delayMicroseconds(CLOCK_DELAY / 2);
   }
-  Serial.println();
 
   delayMicroseconds(CLOCK_DELAY / 2);
   digitalWrite(DAT, LOW);
@@ -260,24 +256,18 @@ void displayTime(bool dots) {
 
   uint8_t seg1 = seg[hour_first_digit];
   uint8_t seg2 = seg[hour_second_digit];
-  uint8_t seg3 = seg[minute_first_digit + 8];
-  uint8_t seg4 = seg[minute_second_digit + 8];
+  uint8_t seg3 = seg[minute_first_digit + 10];
+  uint8_t seg4 = seg[minute_second_digit + 10];
 
   display_data[0] = seg1;
   display_data[1] = seg2;
   if (dots) display_data[2] = 0b11000000;
   else display_data[2] = 0;
   display_data[2] |= (0b00111111 & (seg3 >> 2));
-  display_data[3] = (((0b00000011 & seg3) << 6) & 0b11000000);
+  display_data[3] = (((0b00000011 & seg3) << 6));
   display_data[3] |= (0b00111111 & (seg4 >> 2));
-  display_data[4] = (((0b00000011 & seg4) << 6) & 0b11000000);
-
-  Serial.print(hour_first_digit);
-  Serial.print(hour_second_digit);
-  Serial.print(":");
-  Serial.print(minute_first_digit);
-  Serial.print(minute_second_digit);
-  Serial.print(" ");
+  display_data[4] = (((0b00000011 & seg4) << 6));
+  
   loadData(display_data);
 }
 

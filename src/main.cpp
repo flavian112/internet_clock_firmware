@@ -7,12 +7,14 @@
 
 #define PIN_CLK 26
 #define PIN_DAT 25
-#define CLOCK_DELAY 4 // microseconds, frequenzy is roughly 1 / (2 * CLOCK_DELAY)
+#define CLOCK_DELAY 2 // microseconds, frequenzy is roughly 1 / (4 * CLOCK_DELAY)
 
 #define SERIAL_BUF_LEN 64
+
 char serial_buf[SERIAL_BUF_LEN];
 int serial_buf_len = 0;
 
+uint8_t display_data[5];
 bool display_dots = false;
 
 const uint8_t seg[] = { // table to convert digit to segments to be enabled
@@ -43,24 +45,18 @@ const uint8_t seg[] = { // table to convert digit to segments to be enabled
 String timezone;
 String ssid;
 String password;
-
 const String time_api_server = "http://worldtimeapi.org/api/timezone/";
-
 ESP32Time rtc;
+
+bool has_internet_connection = false;
+String json_buf;
 
 unsigned long last_time_fetch = 0;
 const unsigned long time_fetch_interval = 30 * 60 * 1000; // 30 min
-
 unsigned long last_time_display = 0;
 const unsigned long time_display_interval = 500; // 0.5 s
 
-uint8_t display_data[5];
-
-bool has_internet_connection = false;
-
-String json_buf;
-
-String httpGETRequest(const char *serverName) {
+String perform_http_get_request(const char *serverName) {
   WiFiClient client;
   HTTPClient http;
   http.begin(client, serverName);
@@ -74,7 +70,7 @@ String httpGETRequest(const char *serverName) {
 void request_time() {
   if (WiFi.status() != WL_CONNECTED) return;
   String server_path = time_api_server + timezone;
-  json_buf = httpGETRequest(server_path.c_str());
+  json_buf = perform_http_get_request(server_path.c_str());
   JSONVar result = JSON.parse(json_buf);
   if (JSON.typeof(result) == "undefined") return;
   time_t currentTime = result["unixtime"];
@@ -91,6 +87,84 @@ void wifi_evt_ip(WiFiEvent_t event, WiFiEventInfo_t info) {
 void wifi_evt_dis(WiFiEvent_t event, WiFiEventInfo_t info) {
   has_internet_connection = false;
   WiFi.begin(ssid, password);
+}
+
+void print_string(String desc, String str) {
+  Serial.print(desc);
+  Serial.print(": ");
+  Serial.print("\"");
+  Serial.print(str);
+  Serial.println("\"");
+}
+
+void process_serial() {
+  while(Serial.available()) {
+    if (serial_buf_len >= SERIAL_BUF_LEN - 1) serial_buf_len = 0;
+    char input = Serial.read();
+    Serial.write(input);
+    serial_buf[serial_buf_len++] = input;
+    if (input != '\n') continue;
+    String cmd = String(serial_buf, serial_buf_len);
+    serial_buf_len = 0;
+    if (cmd.startsWith("pt")) {
+      print_string("datetime", rtc.getDateTime());
+    } else if (cmd.startsWith("ps")) {
+      print_string("ssid", ssid);
+    } else if (cmd.startsWith("pz")) {
+      print_string("timezone", timezone);
+    } else if (cmd.startsWith("pp")) {
+      print_string("password", password);
+    } else if (cmd.startsWith("ss ")) {
+      ssid = String(cmd.substring(3));
+      ssid.trim();
+      NVS.setString("ssid", ssid);
+      print_string("ssid", ssid);
+    } else if (cmd.startsWith("sz ")) {
+      timezone = String(cmd.substring(3));
+      timezone.trim();
+      NVS.setString("timezone", timezone);
+      print_string("timezone", timezone);
+    } else if (cmd.startsWith("sp ")) {
+      password = String(cmd.substring(3));
+      password.trim();
+      NVS.setString("password", password);
+      print_string("password", password);
+    }
+  }
+}
+
+void update_display_data() {
+  uint8_t h = rtc.getHour(true);
+  uint8_t m = rtc.getMinute();
+  display_data[0] = seg[h % 10];
+  display_data[1] = seg[h / 10];
+  display_data[2] = display_dots ? 0xc0 : 0x00;
+  display_data[2] |= (0x3f & (seg[m / 10 + 10] >> 2));
+  display_data[3] = (((0x03 & seg[m / 10 + 10]) << 6));
+  display_data[3] |= (0x3f & (seg[m % 10 + 10] >> 2));
+  display_data[4] = (((0x03 & seg[m % 10 + 10]) << 6));
+}
+
+inline void cycle_clock() {
+  delayMicroseconds(CLOCK_DELAY);
+  digitalWrite(PIN_CLK, HIGH);
+  delayMicroseconds(2 * CLOCK_DELAY);
+  digitalWrite(PIN_CLK, LOW);
+  delayMicroseconds(CLOCK_DELAY);
+}
+
+void write_display_data() {
+  cycle_clock();
+  digitalWrite(PIN_DAT, HIGH);
+  cycle_clock();
+  digitalWrite(PIN_DAT, LOW);
+  cycle_clock();
+  for (int i = 0; i < 34; ++i) {
+    digitalWrite(PIN_DAT, display_data[i / 8] & (1 << (7 - (i % 8))));
+    cycle_clock();
+  }
+  digitalWrite(PIN_DAT, LOW);
+  cycle_clock();
 }
 
 void setup() {
@@ -112,153 +186,16 @@ void setup() {
   digitalWrite(PIN_DAT, LOW);
 }
 
-void process_serial() {
-  while(Serial.available()) {
-    if (serial_buf_len >= SERIAL_BUF_LEN - 1) {
-      serial_buf_len = 0;
-    }
-    char input = Serial.read();
-    Serial.write(input);
-    serial_buf[serial_buf_len++] = input;
-    if (input == '\n') {
-      String cmd = String(serial_buf, serial_buf_len);
-      serial_buf_len = 0;
-
-      if (cmd.startsWith("pt")) {
-        Serial.println(rtc.getDateTime());
-
-      } else if (cmd.startsWith("ps")) {
-        Serial.print("SSID: ");
-        Serial.print("\"");
-        Serial.print(ssid);
-        Serial.println("\"");
-
-      } else if (cmd.startsWith("pz")) {
-        Serial.print("Timezone: ");
-        Serial.print("\"");
-        Serial.print(timezone);
-        Serial.println("\"");
-
-      } else if (cmd.startsWith("pp")) {
-        Serial.print("Password: ");
-        Serial.print("\"");
-        Serial.print(password);
-        Serial.println("\"");
-
-      } else if (cmd.startsWith("ss ")) {
-        ssid = String(cmd.substring(3));
-        ssid.trim();
-        Serial.print("SSID: ");
-        Serial.print("\"");
-        Serial.print(ssid);
-        Serial.println("\"");
-        NVS.setString("ssid", ssid);
-
-      } else if (cmd.startsWith("sz ")) {
-        timezone = String(cmd.substring(3));
-        timezone.trim();
-        Serial.print("Timezone: ");
-        Serial.print("\"");
-        Serial.print(timezone);
-        Serial.println("\"");
-        NVS.setString("timezone", timezone);
-
-      } else if (cmd.startsWith("sp ")) {
-        password = String(cmd.substring(3));
-        password.trim();
-        Serial.print("Password: ");
-        Serial.print("\"");
-        Serial.print(password);
-        Serial.println("\"");
-        NVS.setString("password", password);
-      }
-    }
-  }
-}
-
-void update_display_data(bool dots) {
-  uint8_t hour = rtc.getHour(true);
-  uint8_t minute = rtc.getMinute();
-
-  uint8_t hour_first_digit = hour / 10;
-  uint8_t hour_second_digit = hour % 10;
-
-  uint8_t minute_first_digit = minute / 10;
-  uint8_t minute_second_digit = minute % 10;
-
-  uint8_t seg1 = seg[hour_first_digit];
-  uint8_t seg2 = seg[hour_second_digit];
-  uint8_t seg3 = seg[minute_first_digit + 10];
-  uint8_t seg4 = seg[minute_second_digit + 10];
-
-  display_data[0] = seg2;
-  display_data[1] = seg1;
-  if (dots) display_data[2] = 0b11000000;
-  else display_data[2] = 0;
-  display_data[2] |= (0b00111111 & (seg3 >> 2));
-  display_data[3] = (((0b00000011 & seg3) << 6));
-  display_data[3] |= (0b00111111 & (seg4 >> 2));
-  display_data[4] = (((0b00000011 & seg4) << 6));
-}
-
-void write_display_data() {
-  digitalWrite(PIN_CLK, HIGH);
-  delayMicroseconds(CLOCK_DELAY);
-  digitalWrite(PIN_CLK, LOW);
-  delayMicroseconds(CLOCK_DELAY / 2);
-
-  digitalWrite(PIN_DAT, HIGH);
-
-  delayMicroseconds(CLOCK_DELAY / 2);
-  digitalWrite(PIN_CLK, HIGH);
-  delayMicroseconds(CLOCK_DELAY);
-  digitalWrite(PIN_CLK, LOW);
-  delayMicroseconds(CLOCK_DELAY / 2);
-
-  digitalWrite(PIN_DAT, LOW);
-
-  delayMicroseconds(CLOCK_DELAY / 2);
-  digitalWrite(PIN_CLK, HIGH);
-  delayMicroseconds(CLOCK_DELAY);
-  digitalWrite(PIN_CLK, LOW);
-  delayMicroseconds(CLOCK_DELAY / 2);
-
-  for (int i = 0; i < 34; ++i) {
-    bool high = (display_data[i / 8] & (1 << (7 - (i % 8))));
-    
-    if (high) digitalWrite(PIN_DAT, HIGH);
-    else digitalWrite(PIN_DAT, LOW);
-
-    delayMicroseconds(CLOCK_DELAY / 2);
-
-    digitalWrite(PIN_CLK, HIGH);
-    delayMicroseconds(CLOCK_DELAY);
-    digitalWrite(PIN_CLK, LOW);
-    delayMicroseconds(CLOCK_DELAY / 2);
-  }
-
-  delayMicroseconds(CLOCK_DELAY / 2);
-  digitalWrite(PIN_DAT, LOW);
-
-  delayMicroseconds(CLOCK_DELAY / 2);
-  digitalWrite(PIN_CLK, HIGH);
-  delayMicroseconds(CLOCK_DELAY);
-  digitalWrite(PIN_CLK, LOW);
-}
-
 void loop() {
-
   if ((millis() - last_time_fetch) > time_fetch_interval && has_internet_connection) {
     request_time();
     last_time_fetch = millis();
   }
-
   if ((millis() - last_time_display) > time_display_interval) {
     last_time_display = millis();
-    update_display_data(display_dots);
-    display_dots = !display_dots;
+    update_display_data();
     write_display_data();
+    display_dots = !display_dots;
   }
-
   process_serial();
 }

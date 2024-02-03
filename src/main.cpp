@@ -219,6 +219,8 @@ void loadData(uint8_t *data) {
   digitalWrite(CLK, LOW);
   delayMicroseconds(CLOCK_DELAY / 2);
 
+  digitalWrite(DAT, LOW);
+
   delayMicroseconds(CLOCK_DELAY / 2);
   digitalWrite(CLK, HIGH);
   delayMicroseconds(CLOCK_DELAY);
@@ -242,6 +244,11 @@ void loadData(uint8_t *data) {
 
   delayMicroseconds(CLOCK_DELAY / 2);
   digitalWrite(DAT, LOW);
+
+  delayMicroseconds(CLOCK_DELAY / 2);
+  digitalWrite(CLK, HIGH);
+  delayMicroseconds(CLOCK_DELAY);
+  digitalWrite(CLK, LOW);
 }
 
 void displayTime(bool dots) {
@@ -259,8 +266,8 @@ void displayTime(bool dots) {
   uint8_t seg3 = seg[minute_first_digit + 10];
   uint8_t seg4 = seg[minute_second_digit + 10];
 
-  display_data[0] = seg1;
-  display_data[1] = seg2;
+  display_data[0] = seg2;
+  display_data[1] = seg1;
   if (dots) display_data[2] = 0b11000000;
   else display_data[2] = 0;
   display_data[2] |= (0b00111111 & (seg3 >> 2));

@@ -54,7 +54,7 @@ String json_buf;
 unsigned long last_time_fetch = 0;
 const unsigned long time_fetch_interval = 30 * 60 * 1000; // 30 min
 unsigned long last_time_display = 0;
-const unsigned long time_display_interval = 500; // 0.5 s
+const unsigned long time_display_interval = 1000; // 0.5 s
 
 String perform_http_get_request(const char *serverName) {
   WiFiClient client;
@@ -73,6 +73,8 @@ void request_time() {
   json_buf = perform_http_get_request(server_path.c_str());
   JSONVar result = JSON.parse(json_buf);
   if (JSON.typeof(result) == "undefined") return;
+  if (!result.hasOwnProperty("unixtime")) return;
+  if (!result.hasOwnProperty("raw_offset")) return;
   time_t currentTime = result["unixtime"];
   long offset = result["raw_offset"];
   rtc.setTime(currentTime);
@@ -164,7 +166,7 @@ void write_display_data() {
     cycle_clock();
   }
   digitalWrite(PIN_DAT, LOW);
-  cycle_clock();
+  for (int i = 0; i < 100; ++i) cycle_clock();
 }
 
 void setup() {
@@ -184,6 +186,8 @@ void setup() {
   pinMode(PIN_DAT, OUTPUT);
   digitalWrite(PIN_CLK, LOW);
   digitalWrite(PIN_DAT, LOW);
+
+  for (int i = 0; i < 100; ++i) cycle_clock();
 }
 
 void loop() {

@@ -75,10 +75,13 @@ void request_time() {
   if (JSON.typeof(result) == "undefined") return;
   if (!result.hasOwnProperty("unixtime")) return;
   if (!result.hasOwnProperty("raw_offset")) return;
+   if (!result.hasOwnProperty("dst")) return;
   time_t currentTime = result["unixtime"];
   long offset = result["raw_offset"];
   rtc.setTime(currentTime);
   rtc.offset = offset;
+  boolean dst = result["dst"];
+  if(dst) rtc.offset += 3600;
 }
 
 void wifi_evt_ip(WiFiEvent_t event, WiFiEventInfo_t info) {
